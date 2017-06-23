@@ -152,6 +152,22 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   time_us_ = meas_package.timestamp_;
 
   Prediction(dt);
+
+  /*****************************************************************************
+   *  Update
+   ****************************************************************************/
+
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR && use_radar_) {
+    // Radar updates
+    UpdateRadar(meas_package);
+  } else if (meas_package.sensor_type_ == MeasurementPackage::LASER && use_laser_) {
+    // Laser updates
+    UpdateLidar(meas_package);
+  }
+
+  // print the output
+  cout << "x_ = " << x_ << endl;
+  cout << "P_ = " << P_ << endl;
 }
 
 /**
@@ -283,6 +299,89 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the lidar NIS.
   */
+
+  //set measurement dimension, lidar can measure px, py
+  int n_z = 2;
+  // Number of sigma points
+  int n_sig = 2*n_aug_+1;
+
+  //-------------------------------------------------------------------------------------
+  // 1) Apply non linear measurement model on Sigma points (we got from Prediction step)
+  //-------------------------------------------------------------------------------------
+
+  //create matrix for sigma points in measurement space
+  MatrixXd Zsig = MatrixXd(n_z, n_sig);
+
+  //transform sigma points into measurement space
+  for (int n = 0; n < n_sig; n++) {
+    float px = Xsig_pred_(0, n);
+    float py = Xsig_pred_(1, n);
+    //float v = Xsig_pred_(2, n);
+    //float psi = Xsig_pred_(3, n);
+    //float psi_dot = Xsig_pred_(4, n);
+
+    Zsig(0, n) = px;
+    Zsig(1, n) = py;
+  }
+
+  //--------------------------------------------------
+  // 2) Calculate Mean and Covariance: z_pred and S
+  //--------------------------------------------------
+
+  //mean predicted measurement
+  VectorXd z_pred = VectorXd(n_z);
+  
+  //measurement covariance matrix S
+  MatrixXd S = MatrixXd(n_z, n_z);
+
+  //calculate mean predicted measurement
+  z_pred.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    z_pred = z_pred + weights_(i) * Zsig.col(i); 
+  }
+
+  //calculate measurement covariance matrix S
+  S.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    VectorXd zi = Zsig.col(i) - z_pred; 
+    S = S + weights_(i) * zi * zi.transpose();
+  }
+
+  MatrixXd R = MatrixXd(n_z, n_z);
+  R.fill(0.0);
+  R(0,0) = std_laspx_ * std_laspx_;
+  R(1,1) = std_laspy_ * std_laspy_;
+
+  S = S + R;
+
+  //-------------------------------------------------------------------------------------------
+  // 3) Calculate Cross-Correlation between Sigma points in state space and measurement space
+  //-------------------------------------------------------------------------------------------
+
+  //create matrix for cross correlation Tc
+  MatrixXd Tc = MatrixXd(n_x_, n_z);
+
+  //calculate cross correlation matrix
+  Tc.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    VectorXd xi = Xsig_pred_.col(i) - x_; 
+    VectorXd zi = Zsig.col(i) - z_pred; 
+    Tc = Tc + weights_(i) * xi * zi.transpose();
+  }
+
+  //---------------------------------------------------
+  // 4) Calculate Kalman gain K
+  //---------------------------------------------------
+  MatrixXd K = Tc * S.inverse();
+
+  //--------------------------------------------------
+  // 5) Udpate state Mean and Covariance matrix
+  //--------------------------------------------------
+  VectorXd z = meas_package.raw_measurements_;
+  VectorXd z_diff = z - z_pred;
+
+  x_ = x_ + K * z_diff;
+  P_ = P_ - K * S * K.transpose();
 }
 
 /**
@@ -298,4 +397,111 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the radar NIS.
   */
+
+  //set measurement dimension, radar can measure r, phi, and r_dot
+  int n_z = 3;
+  // Number of sigma points
+  int n_sig = 2*n_aug_+1;
+
+  //-------------------------------------------------------------------------------------
+  // 1) Apply non linear measurement model on Sigma points (we got from Prediction step)
+  //-------------------------------------------------------------------------------------
+
+  //create matrix for sigma points in measurement space
+  MatrixXd Zsig = MatrixXd(n_z, n_sig);
+
+  //transform sigma points into measurement space
+  for (int n = 0; n < n_sig; n++) {
+    float px = Xsig_pred_(0, n);
+    float py = Xsig_pred_(1, n);
+    float v = Xsig_pred_(2, n);
+    float psi = Xsig_pred_(3, n);
+    //float psi_dot = Xsig_pred_(4, n);
+
+    float rho = sqrt(px*px+py*py);
+    float phi = atan2(py, px);
+    float rho_dot = (px*cos(psi)*v+py*sin(psi)*v) / rho;
+
+    //if (fabs(rho_dot) > 0.001)
+
+    Zsig(0, n) = rho;
+    Zsig(1, n) = phi;
+    Zsig(2, n) = rho_dot;
+  }
+
+  //--------------------------------------------------
+  // 2) Calculate Mean and Covariance: z_pred and S
+  //--------------------------------------------------
+
+  //mean predicted measurement
+  VectorXd z_pred = VectorXd(n_z);
+  
+  //measurement covariance matrix S
+  MatrixXd S = MatrixXd(n_z, n_z);
+
+  //calculate mean predicted measurement
+  z_pred.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    z_pred = z_pred + weights_(i) * Zsig.col(i); 
+  }
+
+  //calculate measurement covariance matrix S
+  S.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    VectorXd zi = Zsig.col(i) - z_pred; 
+
+    //angle normalization
+    while (zi(1)> M_PI) zi(1)-=2.*M_PI;
+    while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+
+    S = S + weights_(i) * zi * zi.transpose();
+  }
+
+  MatrixXd R = MatrixXd(n_z, n_z);
+  R.fill(0.0);
+  R(0,0) = std_radr_ * std_radr_;
+  R(1,1) = std_radphi_ * std_radphi_;
+  R(2,2) = std_radrd_ * std_radrd_;
+
+  S = S + R;
+
+  //-------------------------------------------------------------------------------------------
+  // 3) Calculate Cross-Correlation between Sigma points in state space and measurement space
+  //-------------------------------------------------------------------------------------------
+
+  //create matrix for cross correlation Tc
+  MatrixXd Tc = MatrixXd(n_x_, n_z);
+
+  //calculate cross correlation matrix
+  Tc.fill(0.0);
+  for (int i = 0; i < n_sig; i++) {
+    VectorXd xi = Xsig_pred_.col(i) - x_; 
+    VectorXd zi = Zsig.col(i) - z_pred; 
+
+    //angle normalization
+    while (zi(1)> M_PI) zi(1)-=2.*M_PI;
+    while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+
+    //angle normalization
+    while (xi(3)> M_PI) xi(3)-=2.*M_PI;
+    while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
+
+    Tc = Tc + weights_(i) * xi * zi.transpose();
+  }
+
+  //---------------------------------------------------
+  // 4) Calculate Kalman gain K
+  //---------------------------------------------------
+  MatrixXd K = Tc * S.inverse();
+
+  //--------------------------------------------------
+  // 5) Udpate state Mean and Covariance matrix
+  //--------------------------------------------------
+  VectorXd z = meas_package.raw_measurements_;
+  VectorXd z_diff = z - z_pred;
+  while (z_diff(1)> M_PI) z_diff(1)-=2.*M_PI;
+  while (z_diff(1)<-M_PI) z_diff(1)+=2.*M_PI;
+
+  x_ = x_ + K * z_diff;
+  P_ = P_ - K * S * K.transpose();
 }
