@@ -64,6 +64,7 @@ UKF::UKF() {
 
   // Nb sigma points: 2*n_aug_+1
   Xsig_pred_ = MatrixXd(n_x_, 2*n_aug_+1);
+  Xsig_pred_.fill(0.0);
   weights_ = VectorXd(2*n_aug_+1);
 
   //set weights
@@ -72,11 +73,11 @@ UKF::UKF() {
   weights_(0) = lambda_ / (lambda_ + n_aug_);
 
   // Based on ground truth values analysis: cf data/get_sigma.m
-  std_a_ = 0.0714;
-  std_yawdd_ = 0.097739;
+  //std_a_ = 0.0714;
+  //std_yawdd_ = 0.097739;
 
-  //std_a_ = 0.1;
-  //std_yawdd_ = 0.1;
+  std_a_ = 2.5;
+  std_yawdd_ = 0.5;
 
   // huge value, inconsistent at start
   NIS_laser_ = 1000;
@@ -96,6 +97,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
+
+    cout << "start UKF: " << endl;
 
 
   /*****************************************************************************
@@ -119,8 +122,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       /**
       Convert radar from polar to cartesian coordinates and initialize state.
       */
-      float rho = meas_package.raw_measurements_[0];
-      float phi = meas_package.raw_measurements_[1];
+      double rho = meas_package.raw_measurements_[0];
+      double phi = meas_package.raw_measurements_[1];
 		  x_ <<  rho * cos(phi), rho * sin(phi), 0, 0, 0;
       P_ << 1, 0, 0, 0, 0,
 			      0, 1, 0, 0, 0,
@@ -140,6 +143,14 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 			      0, 0, 0, 100, 0,
 			      0, 0, 0, 0, 100;
     }
+
+      // XXX
+      P_ << 1, 0, 0, 0, 0,
+			      0, 1, 0, 0, 0,
+			      0, 0, 1, 0, 0,
+			      0, 0, 0, 0.5, 0,
+			      0, 0, 0, 0, 0.5;
+
 
     // done initializing, no need to predict or update
     time_us_ = meas_package.timestamp_;
@@ -172,6 +183,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   // print the output
   cout << "x_ = " << x_ << endl;
   cout << "P_ = " << P_ << endl;
+
+  cout << "end UKF: " << endl;
 }
 
 /**
@@ -191,6 +204,8 @@ void UKF::Prediction(double dt) {
   // 1) Create Augmented State, Augmented Covariance matrix 
   //------------------------------------------------------
 
+  cout << "Pred 1: " << dt << endl;
+
   //create augmented mean vector
   VectorXd x_aug = VectorXd(n_aug_);
   //create augmented state covariance
@@ -209,15 +224,19 @@ void UKF::Prediction(double dt) {
   // 2) Select Augmented Sigma points
   //------------------------------------------------------
 
+  cout << "Pred 2: " << endl;
+
   // number of sigma points
   int n_sig = 2*n_aug_+1;
   //create sigma point matrix
   MatrixXd Xsig_aug = MatrixXd(n_aug_, n_sig);
+  Xsig_aug.fill(0.0); // BUG FIX !!!
 
   //create square root matrix
   MatrixXd A_aug = P_aug.llt().matrixL();
+
   //create augmented sigma points
-  float c1 = sqrt(lambda_ + n_aug_);
+  double c1 = sqrt(lambda_ + n_aug_);
   Xsig_aug.middleCols(1, n_aug_) = c1 * A_aug;
   Xsig_aug.middleCols(n_aug_+1, n_aug_) = -c1 *A_aug;
   Xsig_aug += x_aug.replicate(1, n_sig);
@@ -226,17 +245,19 @@ void UKF::Prediction(double dt) {
   // 3) Apply non linear CRTV process motion model: dt dependant
   //-------------------------------------------------------------
 
+  cout << "Pred 3: " << endl;
+
   // This implements the CTRV process model
   //predict sigma points
   for (int n = 0; n < n_sig; n++) {
-    float px = Xsig_aug(0, n);
-    float py = Xsig_aug(1, n);
-    float v = Xsig_aug(2, n);
-    float psi = Xsig_aug(3, n);
-    float psi_dot = Xsig_aug(4, n);
+    double px = Xsig_aug(0, n);
+    double py = Xsig_aug(1, n);
+    double v = Xsig_aug(2, n);
+    double psi = Xsig_aug(3, n);
+    double psi_dot = Xsig_aug(4, n);
 
-    float nu_a = Xsig_aug(5, n);
-    float nu_yawdd = Xsig_aug(6, n);
+    double nu_a = Xsig_aug(5, n);
+    double nu_yawdd = Xsig_aug(6, n);
 
     //avoid division by zero
     //write predicted sigma points into right column
@@ -263,6 +284,9 @@ void UKF::Prediction(double dt) {
   //----------------------------------------------
   // 4) Predict new Mean and new Covariance
   //----------------------------------------------
+
+  cout << "Pred 4: " << endl;
+
   //create vector for predicted state
   VectorXd x = VectorXd(n_x_);
   //create covariance matrix for prediction
@@ -279,15 +303,20 @@ void UKF::Prediction(double dt) {
   for (int i = 0; i < n_sig; i++) {
     VectorXd xi = Xsig_pred_.col(i) - x; 
 
+    cout << "xi(3): " << xi(3) << endl;
+
     //angle normalization
     while (xi(3)> M_PI) xi(3)-=2.*M_PI;
     while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
+    //xi(3) = xi(3) - (2*M_PI) * floor((xi(3) + M_PI) / (2 * M_PI)); // XXX
 
     P = P + weights_(i) * xi * xi.transpose();
   }
 
   x_ = x;
   P_ = P;
+
+  cout << "Pred 5: " << endl;
 }
 
 /**
@@ -318,11 +347,11 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   //transform sigma points into measurement space
   for (int n = 0; n < n_sig; n++) {
-    float px = Xsig_pred_(0, n);
-    float py = Xsig_pred_(1, n);
-    //float v = Xsig_pred_(2, n);
-    //float psi = Xsig_pred_(3, n);
-    //float psi_dot = Xsig_pred_(4, n);
+    double px = Xsig_pred_(0, n);
+    double py = Xsig_pred_(1, n);
+    //double v = Xsig_pred_(2, n);
+    //double psi = Xsig_pred_(3, n);
+    //double psi_dot = Xsig_pred_(4, n);
 
     Zsig(0, n) = px;
     Zsig(1, n) = py;
@@ -424,15 +453,15 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   //transform sigma points into measurement space
   for (int n = 0; n < n_sig; n++) {
-    float px = Xsig_pred_(0, n);
-    float py = Xsig_pred_(1, n);
-    float v = Xsig_pred_(2, n);
-    float psi = Xsig_pred_(3, n);
-    //float psi_dot = Xsig_pred_(4, n);
+    double px = Xsig_pred_(0, n);
+    double py = Xsig_pred_(1, n);
+    double v = Xsig_pred_(2, n);
+    double psi = Xsig_pred_(3, n);
+    //double psi_dot = Xsig_pred_(4, n);
 
-    float rho = sqrt(px*px+py*py);
-    float phi = atan2(py, px);
-    float rho_dot = (px*cos(psi)*v+py*sin(psi)*v) / rho;
+    double rho = sqrt(px*px+py*py);
+    double phi = atan2(py, px);
+    double rho_dot = (px*cos(psi)*v+py*sin(psi)*v) / rho;
 
     //if (fabs(rho_dot) > 0.001)
 
