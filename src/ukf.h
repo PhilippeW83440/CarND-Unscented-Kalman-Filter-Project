@@ -68,6 +68,11 @@ public:
   double lambda_;
 
 
+  ///* NIS: Normalized Innovation Squared: used for checking filter consistency
+  double NIS_laser_;
+  double NIS_radar_;
+
+
   /**
    * Constructor
    */

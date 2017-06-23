@@ -77,6 +77,10 @@ UKF::UKF() {
 
   //std_a_ = 0.1;
   //std_yawdd_ = 0.1;
+
+  // huge value, inconsistent at start
+  NIS_laser_ = 1000;
+  NIS_radar_ = 1000;
 }
 
 UKF::~UKF() {}
@@ -382,6 +386,14 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   x_ = x_ + K * z_diff;
   P_ = P_ - K * S * K.transpose();
+
+  //-------------------------------------------------------------------------------------------------------
+  // 6) Calculate NIS value for consistency check: 95% of values should be below 5.9 (2 Degrees of Freedom)
+  //-------------------------------------------------------------------------------------------------------
+  VectorXd error = z - z_pred; 
+  // NIS value follows chi-squared distribution
+  NIS_laser_ = error.transpose() * S.inverse() * error;
+  cout << "NIS_laser_ = " << NIS_laser_ << endl;
 }
 
 /**
@@ -504,4 +516,12 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   x_ = x_ + K * z_diff;
   P_ = P_ - K * S * K.transpose();
+
+  //-------------------------------------------------------------------------------------------------------
+  // 6) Calculate NIS value for consistency check: 95% of values should be below 7.8 (3 Degrees of Freedom)
+  //-------------------------------------------------------------------------------------------------------
+  VectorXd error = z - z_pred; 
+  // NIS value follows chi-squared distribution
+  NIS_radar_ = error.transpose() * S.inverse() * error;
+  cout << "NIS_radar_ = " << NIS_radar_ << endl;
 }
