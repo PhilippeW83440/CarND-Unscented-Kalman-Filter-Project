@@ -7,6 +7,13 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
+
+// faster
+static double NormalizeAngle(double angle)
+{
+  return angle - (2*M_PI) * floor((angle + M_PI) / (2 * M_PI));
+}
+
 /**
  * Initializes Unscented Kalman filter
  */
@@ -73,10 +80,10 @@ UKF::UKF() {
   weights_(0) = lambda_ / (lambda_ + n_aug_);
 
   // Based on ground truth values analysis: cf data/get_sigma.m
-  //std_a_ = 0.0714;
-  //std_yawdd_ = 0.097739;
+  //std_a_ = 0.14;
+  //std_yawdd_ = 0.2;
 
-  std_a_ = 2.5;
+  std_a_ = 0.5;
   std_yawdd_ = 0.5;
 
   // huge value, inconsistent at start
@@ -98,8 +105,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   measurements.
   */
 
-    cout << "start UKF: " << endl;
-
 
   /*****************************************************************************
    *  Initialization
@@ -110,13 +115,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       * Create the covariance matrix.
     */
     // first measurement
-    cout << "UKF: " << endl;
-
-    P_ << 1000, 0, 0, 0, 0,
-			    0, 1000, 0, 0, 0,
-			    0, 0, 1000, 0, 0,
-			    0, 0, 0, 1000, 0,
-			    0, 0, 0, 0, 1000;
 
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       /**
@@ -125,26 +123,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       double rho = meas_package.raw_measurements_[0];
       double phi = meas_package.raw_measurements_[1];
 		  x_ <<  rho * cos(phi), rho * sin(phi), 0, 0, 0;
-      P_ << 1, 0, 0, 0, 0,
-			      0, 1, 0, 0, 0,
-			      0, 0, 10000, 0, 0,
-			      0, 0, 0, 100, 0,
-			      0, 0, 0, 0, 100;
-    }
-    else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
-      /**
-      Initialize state.
-      */
-		  //set the state with the initial location and zero velocity
-		  x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
-      P_ << 1, 0, 0, 0, 0,
-			      0, 1, 0, 0, 0,
-			      0, 0, 10000, 0, 0,
-			      0, 0, 0, 100, 0,
-			      0, 0, 0, 0, 100;
-    }
 
-      // XXX
       P_ << 1, 0, 0, 0, 0,
 			      0, 1, 0, 0, 0,
 			      0, 0, 1, 0, 0,
@@ -152,9 +131,29 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 			      0, 0, 0, 0, 0.5;
 
 
-    // done initializing, no need to predict or update
-    time_us_ = meas_package.timestamp_;
-    is_initialized_ = true;
+      // done initializing, no need to predict or update
+      time_us_ = meas_package.timestamp_;
+      is_initialized_ = true;
+    }
+    else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
+      /**
+      Initialize state.
+      */
+		  //set the state with the initial location and zero velocity
+		  x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
+
+      P_ << 1, 0, 0, 0, 0,
+			      0, 1, 0, 0, 0,
+			      0, 0, 1, 0, 0,
+			      0, 0, 0, 0.5, 0,
+			      0, 0, 0, 0, 0.5;
+
+
+      // done initializing, no need to predict or update
+      time_us_ = meas_package.timestamp_;
+      is_initialized_ = true;
+    }
+
     return;
   }
 
@@ -183,8 +182,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   // print the output
   cout << "x_ = " << x_ << endl;
   cout << "P_ = " << P_ << endl;
-
-  cout << "end UKF: " << endl;
 }
 
 /**
@@ -200,11 +197,11 @@ void UKF::Prediction(double dt) {
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
 
+  //cout << "dt : " << dt << endl;
+
   //------------------------------------------------------
   // 1) Create Augmented State, Augmented Covariance matrix 
   //------------------------------------------------------
-
-  cout << "Pred 1: " << dt << endl;
 
   //create augmented mean vector
   VectorXd x_aug = VectorXd(n_aug_);
@@ -224,8 +221,6 @@ void UKF::Prediction(double dt) {
   // 2) Select Augmented Sigma points
   //------------------------------------------------------
 
-  cout << "Pred 2: " << endl;
-
   // number of sigma points
   int n_sig = 2*n_aug_+1;
   //create sigma point matrix
@@ -244,8 +239,6 @@ void UKF::Prediction(double dt) {
   //-------------------------------------------------------------
   // 3) Apply non linear CRTV process motion model: dt dependant
   //-------------------------------------------------------------
-
-  cout << "Pred 3: " << endl;
 
   // This implements the CTRV process model
   //predict sigma points
@@ -285,8 +278,6 @@ void UKF::Prediction(double dt) {
   // 4) Predict new Mean and new Covariance
   //----------------------------------------------
 
-  cout << "Pred 4: " << endl;
-
   //create vector for predicted state
   VectorXd x = VectorXd(n_x_);
   //create covariance matrix for prediction
@@ -303,20 +294,16 @@ void UKF::Prediction(double dt) {
   for (int i = 0; i < n_sig; i++) {
     VectorXd xi = Xsig_pred_.col(i) - x; 
 
-    cout << "xi(3): " << xi(3) << endl;
-
     //angle normalization
-    while (xi(3)> M_PI) xi(3)-=2.*M_PI;
-    while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
-    //xi(3) = xi(3) - (2*M_PI) * floor((xi(3) + M_PI) / (2 * M_PI)); // XXX
+    //while (xi(3)> M_PI) xi(3)-=2.*M_PI;
+    //while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
+    xi(3) = NormalizeAngle(xi(3));
 
     P = P + weights_(i) * xi * xi.transpose();
   }
 
   x_ = x;
   P_ = P;
-
-  cout << "Pred 5: " << endl;
 }
 
 /**
@@ -332,6 +319,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the lidar NIS.
   */
+
 
   //set measurement dimension, lidar can measure px, py
   int n_z = 2;
@@ -411,6 +399,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   // 5) Udpate state Mean and Covariance matrix
   //--------------------------------------------------
   VectorXd z = meas_package.raw_measurements_;
+
   VectorXd z_diff = z - z_pred;
 
   x_ = x_ + K * z_diff;
@@ -459,11 +448,14 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     double psi = Xsig_pred_(3, n);
     //double psi_dot = Xsig_pred_(4, n);
 
+
+    // avoid divide by 0: px, py in meters ...
+    if (fabs(px) < 0.001) px = 0.001;
+    if (fabs(py) < 0.001) py = 0.001;
+
     double rho = sqrt(px*px+py*py);
     double phi = atan2(py, px);
     double rho_dot = (px*cos(psi)*v+py*sin(psi)*v) / rho;
-
-    //if (fabs(rho_dot) > 0.001)
 
     Zsig(0, n) = rho;
     Zsig(1, n) = phi;
@@ -492,8 +484,9 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     VectorXd zi = Zsig.col(i) - z_pred; 
 
     //angle normalization
-    while (zi(1)> M_PI) zi(1)-=2.*M_PI;
-    while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+    //while (zi(1)> M_PI) zi(1)-=2.*M_PI;
+    //while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+    zi(1) = NormalizeAngle(zi(1));
 
     S = S + weights_(i) * zi * zi.transpose();
   }
@@ -520,12 +513,14 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     VectorXd zi = Zsig.col(i) - z_pred; 
 
     //angle normalization
-    while (zi(1)> M_PI) zi(1)-=2.*M_PI;
-    while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+    //while (zi(1)> M_PI) zi(1)-=2.*M_PI;
+    //while (zi(1)<-M_PI) zi(1)+=2.*M_PI;
+    zi(1) = NormalizeAngle(zi(1));
 
     //angle normalization
-    while (xi(3)> M_PI) xi(3)-=2.*M_PI;
-    while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
+    //while (xi(3)> M_PI) xi(3)-=2.*M_PI;
+    //while (xi(3)<-M_PI) xi(3)+=2.*M_PI;
+    xi(3) = NormalizeAngle(xi(3));
 
     Tc = Tc + weights_(i) * xi * zi.transpose();
   }
