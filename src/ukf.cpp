@@ -2,6 +2,8 @@
 #include "Eigen/Dense"
 #include <iostream>
 
+#include <time.h>
+
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -83,12 +85,25 @@ UKF::UKF() {
   //std_a_ = 0.14;
   //std_yawdd_ = 0.2;
 
-  std_a_ = 0.5;
-  std_yawdd_ = 0.5;
+  // Rule of thumb: std_a set to 1/2 max acceleration for an object
+  // car in urban environment: a_max= 6 m.s-2 => std_a = 3
+  // bicycle here => take a lower value
+  std_a_ = 1; // std for linear acceleration of object tracked
+  std_yawdd_ = 0.5; // std for angular acceleration of object tracked
 
   // huge value, inconsistent at start
   NIS_laser_ = 1000;
   NIS_radar_ = 1000;
+
+  R_radar_ = MatrixXd(3,3);
+  R_radar_ << std_radr_ * std_radr_, 0, 0,
+              0, std_radphi_ * std_radphi_, 0,
+              0, 0, std_radrd_ * std_radrd_;
+
+  R_laser_ = MatrixXd(2, 2);
+  R_laser_ << std_laspx_ * std_laspx_, 0,
+              0, std_laspy_ * std_laspy_;
+
 }
 
 UKF::~UKF() {}
@@ -157,6 +172,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     return;
   }
 
+  clock_t start = clock();
+
   /*****************************************************************************
    *  Prediction
    ****************************************************************************/
@@ -178,6 +195,10 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     // Laser updates
     UpdateLidar(meas_package);
   }
+
+  clock_t stop = clock();
+  double elapsed = (double)(stop - start) * 1000000.0 / CLOCKS_PER_SEC;
+  cout << "Process time in us: " << elapsed << endl;
 
   // print the output
   cout << "x_ = " << x_ << endl;
@@ -243,14 +264,14 @@ void UKF::Prediction(double dt) {
   // This implements the CTRV process model
   //predict sigma points
   for (int n = 0; n < n_sig; n++) {
-    double px = Xsig_aug(0, n);
-    double py = Xsig_aug(1, n);
-    double v = Xsig_aug(2, n);
-    double psi = Xsig_aug(3, n);
-    double psi_dot = Xsig_aug(4, n);
+    const double px = Xsig_aug(0, n);
+    const double py = Xsig_aug(1, n);
+    const double v = Xsig_aug(2, n);
+    const double psi = Xsig_aug(3, n);
+    const double psi_dot = Xsig_aug(4, n);
 
-    double nu_a = Xsig_aug(5, n);
-    double nu_yawdd = Xsig_aug(6, n);
+    const double nu_a = Xsig_aug(5, n);
+    const double nu_yawdd = Xsig_aug(6, n);
 
     //avoid division by zero
     //write predicted sigma points into right column
@@ -368,12 +389,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
     S = S + weights_(i) * zi * zi.transpose();
   }
 
-  MatrixXd R = MatrixXd(n_z, n_z);
-  R.fill(0.0);
-  R(0,0) = std_laspx_ * std_laspx_;
-  R(1,1) = std_laspy_ * std_laspy_;
-
-  S = S + R;
+  S = S + R_laser_;
 
   //-------------------------------------------------------------------------------------------
   // 3) Calculate Cross-Correlation between Sigma points in state space and measurement space
@@ -491,13 +507,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     S = S + weights_(i) * zi * zi.transpose();
   }
 
-  MatrixXd R = MatrixXd(n_z, n_z);
-  R.fill(0.0);
-  R(0,0) = std_radr_ * std_radr_;
-  R(1,1) = std_radphi_ * std_radphi_;
-  R(2,2) = std_radrd_ * std_radrd_;
-
-  S = S + R;
+  S = S + R_radar_;
 
   //-------------------------------------------------------------------------------------------
   // 3) Calculate Cross-Correlation between Sigma points in state space and measurement space
